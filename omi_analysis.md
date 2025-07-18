@@ -1,7 +1,7 @@
 # Omi Codebase Analysis: Real-time Transcription Stack and App Development
 
 ## Overview
-Omi is an AI-powered wearable device ecosystem consisting of hardware, firmware, mobile apps, and backend services that provide real-time conversation transcription and AI-powered apps/plugins.
+Omi is an AI-powered wearable device ecosystem consisting of hardware, firmware, mobile apps, and backend services that provide real-time conversation transcription and AI-powered apps/plugins. The platform now includes Model Context Protocol (MCP) integration, enhanced OAuth capabilities, and improved LLM processing with GPT-4.1.
 
 ## Architecture Stack
 
@@ -77,7 +77,13 @@ Omi is an AI-powered wearable device ecosystem consisting of hardware, firmware,
 - **Deployment**: Modal for serverless functions
 - **Database**: Firebase Firestore + Vector Database (Pinecone)
 - **Real-time**: WebSocket connections
-- **Authentication**: Firebase Auth
+- **Authentication**: Firebase Auth + OAuth 2.0
+- **LLM Models**: 
+  - GPT-4.1 (llm_medium_experiment) for enhanced conversation processing
+  - GPT-4o-mini for lightweight tasks
+  - O1-preview for complex reasoning
+  - Anthropic Claude 3.5 Sonnet (via OpenRouter)
+  - Google Gemini Flash 1.5-8B (via OpenRouter)
 
 #### Real-time Transcription Pipeline
 
@@ -88,8 +94,9 @@ Omi is an AI-powered wearable device ecosystem consisting of hardware, firmware,
 
 2. **Transcription Services**:
    - **Soniox**: WebSocket-based real-time transcription
-   - **Deepgram**: Alternative STT service
+   - **Deepgram**: Enhanced with improved autoscaling policies, supports self-hosted deployments
    - **Speechmatics**: Another STT option
+   - Multi-language support with automatic language detection
    - Configurable via user preferences
 
 3. **Real-time Processing**:
@@ -162,9 +169,10 @@ def your_plugin(data: RealtimePluginRequest):
 #### Conversation Processing Pipeline
 1. **Real-time Transcription**: Live audio → transcript segments
 2. **Conversation Creation**: Segments assembled into conversations
-3. **Structured Extraction**: AI extracts structured data (title, summary, topics)
+3. **Structured Extraction**: AI extracts structured data (title, summary, topics) using GPT-4.1
 4. **Vector Generation**: Embeddings created for semantic search
 5. **Storage**: Vectors stored with metadata for retrieval
+6. **MCP Integration**: Conversations and memories accessible via Model Context Protocol
 
 ## Developing Real-time Advice Apps
 
@@ -248,7 +256,52 @@ def advice_with_web_search(data: RealtimePluginRequest):
     return {'message': advice} if advice else {}
 ```
 
-#### 5. Register and Deploy Plugin
+#### 5. Integrate MCP for Enhanced Context
+```python
+# Use MCP to access conversation history and memories
+import requests
+
+async def get_mcp_context(uid: str, current_topic: str):
+    # Access memories via MCP API
+    memories_response = requests.get(
+        f"https://api-url/v1/mcp/memories?uid={uid}&limit=10"
+    )
+    memories = memories_response.json()
+    
+    # Get recent conversations
+    conversations_response = requests.get(
+        f"https://api-url/v1/mcp/conversations?uid={uid}&limit=5"
+    )
+    conversations = conversations_response.json()
+    
+    # Filter relevant context
+    relevant_context = filter_relevant_memories(memories, current_topic)
+    recent_patterns = analyze_conversation_patterns(conversations)
+    
+    return {
+        'relevant_memories': relevant_context,
+        'conversation_patterns': recent_patterns
+    }
+
+@router.post('/mcp-enhanced-advice', response_model=EndpointResponse)
+async def mcp_enhanced_advice(data: RealtimePluginRequest):
+    transcript = TranscriptSegment.segments_as_string(data.segments)
+    uid = data.uid  # Assuming uid is available in request
+    
+    # Get MCP context
+    mcp_context = await get_mcp_context(uid, transcript)
+    
+    # Generate personalized advice
+    advice = generate_personalized_advice(
+        transcript, 
+        mcp_context['relevant_memories'],
+        mcp_context['conversation_patterns']
+    )
+    
+    return {'message': advice} if advice else {}
+```
+
+#### 6. Register and Deploy Plugin
 ```python
 # Register in app manifest
 app_config = {
@@ -294,6 +347,25 @@ wss://api-url/v4/listen?language=en&sample_rate=8000&codec=pcm8&uid=user_id&incl
 - `POST /realtime-transcript`: Triggered on real-time transcript segments
 - `POST /day-summary`: Triggered on daily summaries
 
+### OAuth 2.0 Integration API
+```
+GET /v1/oauth/authorize?app_id={app_id}&state={state}
+POST /v1/oauth/callback
+```
+
+### Model Context Protocol (MCP) APIs
+```python
+# Memory Management
+POST /v1/mcp/memories          # Create memory
+GET /v1/mcp/memories           # List memories
+PATCH /v1/mcp/memories/{id}    # Edit memory
+DELETE /v1/mcp/memories/{id}   # Delete memory
+
+# Conversation Access
+GET /v1/mcp/conversations      # List conversations
+GET /v1/mcp/conversations/{id} # Get specific conversation
+```
+
 ### Vector Search API
 ```python
 from database.vector_db import query_vectors_by_metadata
@@ -306,13 +378,60 @@ memories = query_vectors_by_metadata(
 )
 ```
 
+## Latest Features and Updates
+
+### Model Context Protocol (MCP) Integration
+The Omi ecosystem now includes comprehensive MCP support, enabling:
+
+- **Memory Management**: Create, read, update, and delete conversation memories
+- **Conversation Access**: Retrieve and search through conversation history
+- **External Tool Integration**: Connect Omi with other MCP-compatible tools
+- **Claude Desktop Integration**: Direct integration with Anthropic's Claude Desktop
+- **Multi-framework Support**: Examples for LangChain, DSPy, and OpenAI Agents SDK
+
+```python
+# Example MCP server usage
+from mcp_server_omi.server import get_memories, get_conversations
+
+# Access user memories
+memories = await get_memories(uid="user_id", limit=100)
+
+# Retrieve conversations
+conversations = await get_conversations(uid="user_id", limit=25)
+```
+
+### Enhanced OAuth 2.0 System
+- **Streamlined Authorization**: Visual OAuth flow with permission display
+- **App Integration**: Secure third-party app connections
+- **Capability Management**: Granular permission control for apps
+- **User Experience**: Improved consent and authorization interface
+
+### Improved LLM Processing
+- **GPT-4.1 Integration**: Enhanced conversation processing with `llm_medium_experiment`
+- **Multi-model Support**: Flexibility to choose optimal models for different tasks
+- **Performance Optimization**: Better conversation structuring and summarization
+- **Developer Tools**: Enhanced conversation prompt testing capabilities
+
+### Firmware Testing & Development
+- **Omi Shell Mode**: New testing firmware (`OMI_shell`) for development
+- **OTA Updates**: Over-the-air firmware updates via nRF Connect
+- **BLE Throughput Testing**: Performance monitoring tools
+- **Enhanced Debugging**: Improved monitoring and logging capabilities
+
+### Deepgram Enhancements
+- **Autoscaling Improvements**: Better resource management for high-load scenarios
+- **Self-hosted Support**: Option to use private Deepgram deployments
+- **Model Selection**: Support for Nova-2 and Nova-3 models with automatic selection
+- **Multi-language Optimization**: Enhanced language detection and processing
+
 ## Getting Started
 
-1. **Device Setup**: Flash firmware to Omi device
+1. **Device Setup**: Flash firmware to Omi device (including new Omi Shell for testing)
 2. **App Installation**: Install Flutter app and connect device
-3. **Plugin Development**: Create FastAPI-based plugins
-4. **Knowledge Integration**: Use vector database for contextual responses
-5. **Real-time Processing**: Implement WebSocket handlers for live transcription
-6. **Deployment**: Deploy plugins and register in app marketplace
+3. **Plugin Development**: Create FastAPI-based plugins with OAuth support
+4. **MCP Integration**: Connect with external tools via Model Context Protocol
+5. **Knowledge Integration**: Use vector database for contextual responses
+6. **Real-time Processing**: Implement WebSocket handlers for live transcription
+7. **Deployment**: Deploy plugins and register in app marketplace
 
-The Omi ecosystem provides a comprehensive platform for developing real-time AI-powered conversation applications with access to live transcription, knowledge bases, and external integrations.
+The Omi ecosystem provides a comprehensive platform for developing real-time AI-powered conversation applications with access to live transcription, knowledge bases, external integrations, and now enhanced connectivity through MCP and OAuth 2.0.
